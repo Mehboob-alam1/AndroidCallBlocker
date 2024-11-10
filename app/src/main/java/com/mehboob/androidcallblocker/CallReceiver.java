@@ -23,10 +23,15 @@ import android.provider.ContactsContract;
 import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationCompat;
 
+import com.mehboob.androidcallblocker.dao.BlockedNumberDao;
+import com.mehboob.androidcallblocker.database.BlockedNumberDatabase;
+import com.mehboob.androidcallblocker.entitites.BlockedNumber;
+
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.Executors;
 
 public class CallReceiver  extends BroadcastReceiver {
 
@@ -41,27 +46,49 @@ public class CallReceiver  extends BroadcastReceiver {
         String incomingNumber = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER);
 
         if (TelephonyManager.EXTRA_STATE_RINGING.equals(state) && incomingNumber != null) {
-            // Normalize the incoming number
-            String normalizedIncomingNumber = PhoneNumberUtils.normalizeNumber(incomingNumber);
-
-            // Fetch saved contacts
+            // Fetch saved contacts from the Contacts Provider
             loadSavedContacts(context);
 
             boolean isBlocked = true;
-            for (String contactNumber : savedContacts) {
-                String normalizedContactNumber = PhoneNumberUtils.normalizeNumber(contactNumber);
-                if (normalizedContactNumber != null && normalizedContactNumber.equals(normalizedIncomingNumber)) {
-                    isBlocked = false;
-                    break;
-                }
+
+            // Check if the incoming number is in the saved contacts
+            if (savedContacts.contains(incomingNumber)) {
+                isBlocked = false;
             }
 
             if (isBlocked) {
                 Toast.makeText(context, "Blocking call from: " + incomingNumber, Toast.LENGTH_SHORT).show();
-                blockCall(context, incomingNumber);
+                // Implement call blocking logic if applicable
+
+                TelephonyManager telephonyManager = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
+
+
+                try {
+                    Log.d("TAG", "BlockedCall from: " + incomingNumber);
+                    //How to end call programmatically
+                    //https://stackoverflow.com/questions/18065144/end-call-in-android-programmatically
+                    if (android.os.Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+                        Method method = telephonyManager.getClass().getMethod("endCall", null);
+                        method.invoke(telephonyManager);
+                    } else {
+                        TelecomManager tm = (TelecomManager) context.getSystemService(Context.TELECOM_SERVICE);
+
+                        if (ActivityCompat.checkSelfPermission(context, android.Manifest.permission.ANSWER_PHONE_CALLS) != PackageManager.PERMISSION_GRANTED) {
+
+                        }
+                        tm.endCall();
+
+                    }
+                    saveBlockedNumber(context, incomingNumber);
+
+                    notifyUser(context, incomingNumber);
+                } catch (NoSuchMethodException |
+                         IllegalAccessException | InvocationTargetException e) {
+                    e.printStackTrace();
+                }
+
             }
-        }
-    }
+        }    }
 
     @SuppressLint("Range")
     private void loadSavedContacts(Context context) {
@@ -72,6 +99,9 @@ public class CallReceiver  extends BroadcastReceiver {
         if (cursor != null) {
             while (cursor.moveToNext()) {
                 String id = cursor.getString(cursor.getColumnIndex(ContactsContract.Contacts._ID));
+                String name = cursor.getString(cursor.getColumnIndex(ContactsContract.Contacts.DISPLAY_NAME));
+
+                // Check if the contact has phone numbers
                 int hasPhoneNumber = cursor.getInt(cursor.getColumnIndex(ContactsContract.Contacts.HAS_PHONE_NUMBER));
                 if (hasPhoneNumber > 0) {
                     Cursor phoneCursor = contentResolver.query(
@@ -83,11 +113,9 @@ public class CallReceiver  extends BroadcastReceiver {
 
                     if (phoneCursor != null) {
                         while (phoneCursor.moveToNext()) {
-                            String phoneNumber = phoneCursor.getString(phoneCursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER));
-                            String normalizedNumber = PhoneNumberUtils.formatNumberToE164(phoneNumber, "US");
-                            if (normalizedNumber != null) {
-                                savedContacts.add(PhoneNumberUtils.stripSeparators(normalizedNumber));
-                            }
+                            String phoneNumber = phoneCursor.getString(
+                                    phoneCursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER));
+                            savedContacts.add(phoneNumber.replaceAll("\\s+", "")); // Remove spaces
                         }
                         phoneCursor.close();
                     }
@@ -97,25 +125,6 @@ public class CallReceiver  extends BroadcastReceiver {
         }
     }
 
-    private void blockCall(Context context, String incomingNumber) {
-        TelephonyManager telephonyManager = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                TelecomManager tm = (TelecomManager) context.getSystemService(Context.TELECOM_SERVICE);
-                if (tm != null && ActivityCompat.checkSelfPermission(context, android.Manifest.permission.ANSWER_PHONE_CALLS) == PackageManager.PERMISSION_GRANTED) {
-                    tm.endCall();
-                } else {
-                    Log.e("CallReceiver", "Cannot block call: Missing permission or TelecomManager unavailable");
-                }
-            } else {
-                Method method = telephonyManager.getClass().getMethod("endCall");
-                method.invoke(telephonyManager);
-            }
-            notifyUser(context, incomingNumber);
-        } catch (Exception e) {
-            Log.e("CallReceiver", "Error blocking call", e);
-        }
-    }
 
     private void notifyUser(Context context, String incomingNumber) {
         NotificationManager notificationManager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
@@ -146,6 +155,17 @@ public class CallReceiver  extends BroadcastReceiver {
             notificationManager.notify((int) System.currentTimeMillis(), notificationCompat);
 
         }
+    }
+
+    private void saveBlockedNumber(Context context, String phoneNumber) {
+        BlockedNumberDatabase db = BlockedNumberDatabase.getDatabase(context);
+        BlockedNumberDao blockedNumberDao = db.blockedNumberDao();
+        long blockedTime = System.currentTimeMillis(); // Get the current time
+
+        Executors.newSingleThreadExecutor().execute(() -> {
+
+            blockedNumberDao.insertBlockedNumber(new BlockedNumber(phoneNumber,blockedTime));
+        });
     }
 
 }

@@ -2,18 +2,23 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
-    <!-- Whitelist Button -->
-    <item
-  android:id="@+id/action_whitelist"
-        android:icon="@drawable/ic_whitelist"
-    android:title="Whitelist"
-    app:showAsAction="never" />
-
-    <!-- Blocked Calls Button -->
     <item
         android:id="@+id/action_blocked_calls"
         android:icon="@drawable/ic_blocked_calls"
-    android:title="Blocked Calls"
-    app:showAsAction="never" />
+        android:title="Blocked Calls"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_search"
+        android:title="Search"
+        android:icon="@android:drawable/ic_menu_search"
+        app:showAsAction="ifRoom|collapseActionView"
+        app:actionViewClass="androidx.appcompat.widget.SearchView" />
+    <item
+        android:id="@+id/sd"
+        android:title="Status"
+        android:icon="@drawable/baseline_adjust_24"
+        app:showAsAction="ifRoom|collapseActionView"
+        app:actionViewClass="androidx.appcompat.widget.SearchView" />
 
 </menu>
